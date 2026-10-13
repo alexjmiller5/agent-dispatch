@@ -38,7 +38,7 @@ DEFAULT_PROMPT = """\
 Agent Dispatch sent you one task to work: soma `tasks` row {task_id} - "{title}".
 
 1. Load the `soma` skill and read the task row in full first (title, notes, links, body, agent_sessions, project_ids, blocked_by_ids). Its notes are the user's instructions.
-2. This row is your session's task: follow soma-map's agent session-task workflow. Start it with one write - status In Progress and APPEND your resume line to agent_sessions. Close it when the work is done and verified: status Completed, ai_completed 1, completed_date today.
+2. This row is your session's task: follow soma-map's agent session-task workflow. Start it with one write - status In Progress and APPEND your resume line to agent_sessions. Close it when the work is done and verified: status Completed, ai_completed 1 (Reflex stamps the close date; never write it).
 3. Do the work. Propose first and wait for the user's OK in this pane when the task is a design decision or outward-facing (posting, messaging people, submitting forms, spending money, deleting or revoking).
 4. If the last step is the user's (buy, send, decide, pick), write the prep into notes, set lane Me and leave the task open.
 5. Never close your own tab: leave it open for review when you finish. End with what you did and what needs the user.
