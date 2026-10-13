@@ -1,8 +1,8 @@
 # Agent Dispatch
 
 Sends a task straight to an AI coding agent. Mark a Soma `tasks` row with
-`dispatch = Requested` (Synapse does it for a capture containing the `ag`
-keyword) and, within about a second, an always-on Mac opens a new
+`dispatch = Requested` (Synapse does it for a capture whose `$` context is
+exactly `agent`) and, within about a second, an always-on Mac opens a new
 [Herdr](https://github.com/ogulcancelik/herdr) tab, starts an agent there and
 hands it the task. The row moves to `Started`, or to `Failed` with the reason
 appended to its notes.
