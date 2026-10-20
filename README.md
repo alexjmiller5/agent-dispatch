@@ -38,6 +38,12 @@ sends the prompt.
 
 ## The prompt
 
+The default prompt keeps the assigned lane while waiting for a user command,
+purchase, sending, decision, test, approval or review. Lane records who will do
+most of the work. The agent documents pending user actions in notes and leaves
+the task open; changing an assigned lane requires explicit user instruction,
+including correction of an initial misclassification.
+
 `~/.config/agent-dispatch/prompt.md` (the `promptFile` option) is user state:
 absent means the built-in default, which tells the agent to load the `soma`
 skill, read the task in full, start it per the soma-map session-task workflow

@@ -89,6 +89,14 @@ def test_default_prompt_names_the_task_and_the_rules():
         assert needle in DEFAULT_PROMPT
 
 
+def test_default_prompt_preserves_lane_while_waiting_for_user():
+    assert "set lane Me" not in DEFAULT_PROMPT
+    assert "majority of the work" in DEFAULT_PROMPT
+    assert "explicitly instructs" in DEFAULT_PROMPT
+    assert "misclassification" in DEFAULT_PROMPT
+    assert "keep its lane" in DEFAULT_PROMPT
+
+
 def test_prompt_file_overrides_the_default(tmp_path):
     (tmp_path / "prompt.md").write_text("Work task {task_id}: {title}. Keep {braces}.")
     fake = FakeHub()

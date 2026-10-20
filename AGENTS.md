@@ -34,6 +34,9 @@ agent choice, install and service setup.
 - **Outcomes live on the row** (`dispatch`, a `notes` line), not only the log.
 - The app names no secret store and no machine path; the consumer's config
   supplies hub URL, subscription id, credential command, Herdr workspace.
+- The default prompt preserves assigned task lanes while waiting for user action;
+  lane means who will do most of the work. Only an explicit user instruction
+  changes an assigned lane, including correction of an initial misclassification.
 - The default prompt is product text; a user's prompt is state in
   `promptFile`, never a repo change.
 
