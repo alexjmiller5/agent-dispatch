@@ -30,7 +30,7 @@ agent choice, install and service setup.
   only after its pass succeeded. Writes are revision-checked patches from a
   fresh read; a row no longer `Requested` keeps the other writer's value.
 - Pending requests respect due dates, open dependencies and explicit pause/defer
-  markers in notes. Missing/malformed dependencies or dates fail closed without
+  markers in the title, notes or body. Missing/malformed dependencies or dates fail closed without
   changing the task. Historical pause markers require explicit clearance. Quiet
   long polls and a bounded 30-second reconciliation recheck held requests. `time_zone` and `day_start_minutes` select the
   task calendar; absent timezone uses the host local zone.

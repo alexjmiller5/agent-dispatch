@@ -432,6 +432,8 @@ def test_agent_name_is_a_valid_herdr_name():
         {"blocked_by_ids": '["missing"]'},
         {"blocked_by_ids": "invalid"},
         {"notes": "PAUSED at the user's request. Resume only when asked."},
+        {"body": "## PAUSED - wait for explicit resume."},
+        {"title": "PAUSED: revisit only when asked"},
         {"status": "Deferred"},
     ],
 )

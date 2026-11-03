@@ -31,6 +31,7 @@ COLUMNS = [
     "due_date",
     "blocked_by_ids",
     "notes",
+    "body",
     "deleted_at",
     "updated_at",
     "hub_at",
@@ -173,8 +174,8 @@ class Dispatcher:
             return False
         # Historical/ambiguous pause prose stays held until explicitly cleared.
         if re.search(
-            r"^\s*(?:\d{4}-\d{2}-\d{2}[: ]+)?(?:PAUSED\b|USER-DEFERRED\b|DEFERRED\b|ON HOLD\b|Resume only when\b)",
-            row.get("notes") or "",
+            r"^\s*(?:#{1,6}\s*)?(?:\d{4}-\d{2}-\d{2}[: ]+)?(?:PAUSED\b|USER-DEFERRED\b|DEFERRED\b|ON HOLD\b|Resume only when\b)",
+            "\n".join(row.get(k) or "" for k in ("title", "notes", "body")),
             re.IGNORECASE | re.MULTILINE,
         ):
             return False

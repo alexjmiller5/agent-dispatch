@@ -20,7 +20,8 @@ subscription (`durable-pull-v1`) over `tasks.dispatch`.
 | `due_date`, `blocked_by_ids` | read | future tasks and tasks with open or missing blockers remain Requested |
 
 Tasks with explicit PAUSED, DEFERRED, USER-DEFERRED, ON HOLD or Resume only when
-markers at the start of a note line stay pending, including historical markers.
+markers at the start of a title, note or body line (including Markdown headings)
+stay pending, including historical markers.
 Clear the hold explicitly before requesting work; the consumer never infers a
 resume from ambiguous prose. Invalid dates/dependencies and unknown statuses
 also stay pending. Quiet long polls and a 30-second check during event bursts
