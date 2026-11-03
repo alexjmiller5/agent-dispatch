@@ -516,3 +516,26 @@ def test_due_respects_configured_calendar_and_clock(tmp_path, monkeypatch, due, 
     clock[0] = datetime.fromisoformat(after)
     d.reconcile()
     assert herdr.verbs().count("tab create") == 1
+
+
+def test_busy_subscription_cannot_starve_a_newly_unblocked_request(tmp_path, monkeypatch):
+    from agent_dispatch import main
+
+    clock = [0.0]
+    monkeypatch.setattr(main.time, "monotonic", lambda: clock[0])
+    fake = FakeHub([{"id": OTHER, "status": "To Do"}])
+    fake.request(TASK, blocked_by_ids=[OTHER])
+    d, herdr, _ = dispatcher(tmp_path, fake)
+    original = d.hub.ack
+
+    def ack(*args):
+        original(*args)
+        fake.edit(OTHER, status="Completed")
+        fake.request("unrelated")
+        fake.edit("unrelated", dispatch="Started")
+        clock[0] += 31
+
+    d.hub.ack = ack
+    run_watch(d, fake, iterations=2)
+    assert fake.rows[TASK]["dispatch"] == "Started"
+    assert herdr.verbs().count("tab create") == 1

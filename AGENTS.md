@@ -32,7 +32,7 @@ agent choice, install and service setup.
 - Pending requests respect due dates, open dependencies and explicit pause/defer
   markers in notes. Missing/malformed dependencies or dates fail closed without
   changing the task. Historical pause markers require explicit clearance. Quiet
-  long polls recheck held requests. `time_zone` and `day_start_minutes` select the
+  long polls and a bounded 30-second reconciliation recheck held requests. `time_zone` and `day_start_minutes` select the
   task calendar; absent timezone uses the host local zone.
 - **Never launch twice.** The Herdr agent name is derived from the task id; an
   existing agent is adopted. `Failed` is terminal until someone sets `Requested`.

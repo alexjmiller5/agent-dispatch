@@ -23,7 +23,8 @@ Tasks with explicit PAUSED, DEFERRED, USER-DEFERRED, ON HOLD or Resume only when
 markers at the start of a note line stay pending, including historical markers.
 Clear the hold explicitly before requesting work; the consumer never infers a
 resume from ambiguous prose. Invalid dates/dependencies and unknown statuses
-also stay pending. Quiet long polls recheck pending requests, so reaching a due
+also stay pending. Quiet long polls and a 30-second check during event bursts
+recheck pending requests, so reaching a due
 time or completing a blocker does not require resubmission.
 
 Date-only dues use the host local calendar, or `AGENT_DISPATCH_TIME_ZONE` (IANA)

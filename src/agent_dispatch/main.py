@@ -21,12 +21,13 @@ log = structlog.get_logger()
 def watch(
     hub: Hub, settings: Settings, dispatcher: Dispatcher, *, sleep=time.sleep, iterations=None
 ):
-    dirty, backoff = True, 1.0
+    dirty, backoff, next_reconcile = True, 1.0, 0.0
     while iterations is None or iterations > 0:
         iterations = None if iterations is None else iterations - 1
         try:
-            if dirty:
+            if dirty or time.monotonic() >= next_reconcile:
                 dispatcher.reconcile()
+                next_reconcile = time.monotonic() + 30
                 dirty = False
             batch = hub.poll(settings.subscription_id, settings.hold_seconds)
             if batch["events"]:
