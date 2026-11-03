@@ -254,6 +254,7 @@ class Dispatcher:
         workspace = (
             ("--workspace", self.settings.herdr_workspace) if self.settings.herdr_workspace else ()
         )
+        self.handoffs.write(row["id"], "blank")
         created = self.herdr(
             "tab", "create", *workspace, "--cwd", str(self.settings.cwd),
             "--label", short_label(row["title"]), "--no-focus",
@@ -261,7 +262,6 @@ class Dispatcher:
         tab = created["result"]["tab"]["tab_id"]
         pane = created["result"]["root_pane"]["pane_id"]
         try:
-            self.handoffs.write(row["id"], "blank")
             self.herdr(
                 "agent", "start", name, "--kind", spec.kind, "--pane", pane,
                 "--timeout", "90000", "--", *spec.args(),

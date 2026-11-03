@@ -37,7 +37,11 @@ agent choice, install and service setup.
 - `handoffs.py` atomically retains blank/delivering/delivered phases in the
   configured state directory. After startup, recheck eligibility and the row
   revision immediately before prompting. Held blank agents are reused across
-  restarts; acknowledged prompts never repeat. An uncertain prompt stays pending
+  restarts; acknowledged prompts never repeat. Receipt writes flush the file,
+  rename, then flush the parent directory; namespace entries are flushed too.
+  Darwin uses F_FULLFSYNC without an unsupported-operation downgrade. Sync
+  failures propagate and prevent new delivery. Restart tests are not power-loss
+  proof. An uncertain prompt stays pending
   for operator reconciliation through Herdr and Soma, never an automatic resend.
 - **Never launch twice.** The Herdr agent name is derived from the task id; an
   existing agent is adopted. `Failed` is terminal until someone sets `Requested`.

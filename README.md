@@ -136,3 +136,17 @@ replaying work whose delivery cannot be proven either way.
 Only null/empty string (and list/JSON-array forms for dependencies) normalize as
 empty scheduling fields. False, numeric zero, objects and other malformed values
 remain held rather than being treated as absent.
+
+Receipt writes synchronize the file, atomically rename it, then synchronize its
+parent directory before permitting work delivery. The receipt namespace entry
+is synchronized in the configured state directory too. macOS additionally uses
+`F_FULLFSYNC` for these barriers; unsupported operations and I/O failures
+propagate rather than silently weakening the protocol. No agent is created if
+the initial blank receipt cannot pass its barriers. A failure after installing
+an uncertain-delivery receipt leaves it pending, never automatically resent.
+
+Ordering/failure-injection and process-restart tests verify software behavior,
+not physical power-loss survival. Storage hardware/filesystem guarantees still
+apply; Apple describes forced flushes as best effort. See Apple's
+[fsync manual](https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man2/fsync.2.html)
+and [storage guidance](https://developer.apple.com/documentation/xcode/reducing-disk-writes).
