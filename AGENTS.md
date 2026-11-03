@@ -34,6 +34,11 @@ agent choice, install and service setup.
   changing the task. Historical pause markers require explicit clearance. Quiet
   long polls and a bounded 30-second reconciliation recheck held requests. `time_zone` and `day_start_minutes` select the
   task calendar; absent timezone uses the host local zone.
+- `handoffs.py` atomically retains blank/delivering/delivered phases in the
+  configured state directory. After startup, recheck eligibility and the row
+  revision immediately before prompting. Held blank agents are reused across
+  restarts; acknowledged prompts never repeat. An uncertain prompt stays pending
+  for operator reconciliation through Herdr and Soma, never an automatic resend.
 - **Never launch twice.** The Herdr agent name is derived from the task id; an
   existing agent is adopted. `Failed` is terminal until someone sets `Requested`.
 - **Outcomes live on the row** (`dispatch`, a `notes` line), not only the log.

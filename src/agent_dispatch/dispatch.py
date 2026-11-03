@@ -17,6 +17,7 @@ import structlog
 
 from .config import AgentSpec, Settings
 from .herdr import HerdrError
+from .handoffs import Handoffs
 from .hub import Hub, RevisionConflict
 
 log = structlog.get_logger()
@@ -109,6 +110,7 @@ def _alias_pattern(alias: str) -> re.Pattern:
 class Dispatcher:
     def __init__(self, hub: Hub, settings: Settings, herdr, quota):
         self.hub, self.settings, self.herdr, self.quota = hub, settings, herdr, quota
+        self.handoffs = Handoffs(settings.state_dir)
 
     # --- entry points ---------------------------------------------------------
 
@@ -142,12 +144,22 @@ class Dispatcher:
             return self.fail(task, f"task is {row['status']}")
         if not self.eligible(row):
             return
+        phase = self.handoffs.read(task)
+        if phase == "delivering":
+            log.warning("uncertain prompt delivery; operator reconciliation required", task=task)
+            return
+        if phase == "delivered":
+            return self.mark(task, {"dispatch": "Started"})
         name = agent_name(task)
         try:
             self.herdr("agent", "get", name)
+            if phase == "blank" and not self.deliver(name, row):
+                return
             log.info("adopting existing agent", task=task, agent=name)
             return self.mark(task, {"dispatch": "Started"})
         except HerdrError as error:
+            if self.handoffs.read(task) == "delivering":
+                return
             if error.code != "agent_not_found":
                 return self.fail(task, f"Herdr is unavailable: {error}")
         spec, why = self.choose(row["title"] or "")
@@ -158,7 +170,8 @@ class Dispatcher:
         if not row or not self.eligible(row):
             return
         try:
-            self.launch(name, spec, row)
+            if not self.launch(name, spec, row):
+                return
         except HerdrError as error:
             return self.fail(task, f"Could not start an agent ({spec.kind}): {error}")
         log.info("dispatched", task=task, agent=name, kind=spec.kind, model=spec.model, why=why)
@@ -187,7 +200,7 @@ class Dispatcher:
         )
         due = row.get("due_date")
         try:
-            if due:
+            if due is not None and due != "":
                 if not isinstance(due, str):
                     return False
                 if re.fullmatch(r"\d{4}-\d{2}-\d{2}", due):
@@ -202,7 +215,9 @@ class Dispatcher:
                     deadline = datetime.fromisoformat(due.replace("Z", "+00:00"))
                     if deadline > (now if deadline.tzinfo else local.replace(tzinfo=None)):
                         return False
-            blockers = row.get("blocked_by_ids") or []
+            blockers = row.get("blocked_by_ids")
+            if blockers is None or blockers == "":
+                blockers = []
             if isinstance(blockers, str):
                 blockers = json.loads(blockers)
             if not isinstance(blockers, list) or any(
@@ -235,7 +250,7 @@ class Dispatcher:
         )
         return None, f"no agent quota left ({seen}; minimum {floor:g}%)"
 
-    def launch(self, name: str, spec: AgentSpec, row: dict) -> None:
+    def launch(self, name: str, spec: AgentSpec, row: dict) -> bool:
         workspace = (
             ("--workspace", self.settings.herdr_workspace) if self.settings.herdr_workspace else ()
         )
@@ -246,36 +261,49 @@ class Dispatcher:
         tab = created["result"]["tab"]["tab_id"]
         pane = created["result"]["root_pane"]["pane_id"]
         try:
+            self.handoffs.write(row["id"], "blank")
             self.herdr(
                 "agent", "start", name, "--kind", spec.kind, "--pane", pane,
                 "--timeout", "90000", "--", *spec.args(),
             )  # fmt: skip
-            self.herdr("agent", "wait", name, "--until", "idle", "--timeout", "90000")
-            text = (
-                self.prompt().replace("{task_id}", row["id"]).replace("{title}", row["title"] or "")
-            )
-            try:
-                self.herdr(
-                    "agent",
-                    "prompt",
-                    name,
-                    text,
-                    "--wait",
-                    "--until",
-                    "working",
-                    "--timeout",
-                    "30000",
-                )
-            except HerdrError as error:
-                if error.code != "agent_prompt_stalled":
-                    raise
-                self.herdr("agent", "send-keys", name, "enter")  # never resend the text
+            return self.deliver(name, row)
         except HerdrError:
+            if self.handoffs.read(row["id"]) == "delivering":
+                # The prompt may have reached the agent. Never close it or resend.
+                return False
             try:
                 self.herdr("tab", "close", tab)
             except HerdrError:
                 pass
             raise
+
+    def deliver(self, name: str, row: dict) -> bool:
+        self.herdr("agent", "wait", name, "--until", "idle", "--timeout", "90000")
+        current = self.read(row["id"])
+        if not current or not self.eligible(current):
+            return False
+        text = (
+            self.prompt()
+            .replace("{task_id}", current["id"])
+            .replace("{title}", current["title"] or "")
+        )
+        latest = self.read(row["id"])
+        if not latest or any(latest[k] != current[k] for k in ("updated_at", "hub_at")):
+            return False
+        self.handoffs.write(row["id"], "delivering")
+        try:
+            self.herdr(
+                "agent", "prompt", name, text, "--wait", "--until", "working", "--timeout", "30000"
+            )
+        except HerdrError as error:
+            if error.code != "agent_prompt_stalled":
+                raise
+            current = self.read(row["id"])
+            if not current or not self.eligible(current):
+                return False
+            self.herdr("agent", "send-keys", name, "enter")  # never resend the text
+        self.handoffs.write(row["id"], "delivered")
+        return True
 
     def prompt(self) -> str:
         try:

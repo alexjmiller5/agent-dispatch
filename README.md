@@ -122,3 +122,17 @@ A replacement Mac enrolls a new credential; revoke the old one at
 Tests drive the job against an in-process fake hub and a fake Herdr.
 
 Run `REFLEX_REPO=<checkout> just test` to include the real Reflex occurrence-to-dispatch contract regression. It is skipped without the separate producer checkout.
+
+Delivery phases live under the configured state directory. An agent started
+without a task prompt is retained as blank when a startup-time edit holds work;
+a later eligible request reuses it, including after a daemon restart. The task
+and dependencies are checked after the idle wait, with a final row revision
+check before delivery. Acknowledged prompts are never replayed. If a prompt's
+acknowledgement is lost, delivery remains uncertain and Requested: inspect the
+existing Herdr session and reconcile the Soma dispatch outcome using actual
+evidence. Never clear the receipt or retry the prompt blindly. This avoids
+replaying work whose delivery cannot be proven either way.
+
+Only null/empty string (and list/JSON-array forms for dependencies) normalize as
+empty scheduling fields. False, numeric zero, objects and other malformed values
+remain held rather than being treated as absent.

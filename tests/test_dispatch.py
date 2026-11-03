@@ -541,3 +541,195 @@ def test_busy_subscription_cannot_starve_a_newly_unblocked_request(tmp_path, mon
     run_watch(d, fake, iterations=2)
     assert fake.rows[TASK]["dispatch"] == "Started"
     assert herdr.verbs().count("tab create") == 1
+
+
+@pytest.mark.parametrize(
+    "edit",
+    [
+        {"notes": "PAUSED until explicitly resumed"},
+        {"due_date": "2999-01-01"},
+        {"blocked_by_ids": [OTHER]},
+        {"dispatch": None},
+        {"dispatch": "Started"},
+        {"dispatch": "Failed"},
+        {"deleted_at": "2030-01-01T00:00:00.000Z"},
+        {"body": "## PAUSED until asked"},
+        {"status": "Completed"},
+        {"lane": "Me"},
+    ],
+)
+def test_startup_hold_keeps_blank_agent_and_resumes_once_after_restart(tmp_path, edit):
+    fake = FakeHub([{"id": OTHER, "status": "To Do"}])
+    fake.request(TASK)
+    herdr = FakeHerdr(hooks={"agent wait": lambda: fake.edit(TASK, **edit)})
+    d, _, _ = dispatcher(tmp_path, fake, herdr=herdr)
+    d.reconcile()
+    assert "agent prompt" not in herdr.verbs()
+    assert not fake.patches
+    assert fake.rows[TASK]["dispatch"] == edit.get("dispatch", "Requested")
+    assert herdr.verbs().count("tab create") == 1
+    herdr.hooks.clear()
+    fake.edit(
+        TASK,
+        notes=None,
+        body=None,
+        deleted_at=None,
+        due_date=None,
+        blocked_by_ids=[],
+        dispatch="Requested",
+        status="To Do",
+        lane="AI",
+    )
+    resumed, _, _ = dispatcher(tmp_path, fake, herdr=herdr)
+    resumed.reconcile()
+    resumed.reconcile()
+    assert herdr.verbs().count("tab create") == 1
+    assert herdr.verbs().count("agent start") == 1
+    assert herdr.verbs().count("agent prompt") == 1
+    assert fake.rows[TASK]["dispatch"] == "Started"
+
+
+@pytest.mark.parametrize(
+    "values",
+    [
+        {"blocked_by_ids": {}},
+        {"blocked_by_ids": 0},
+        {"blocked_by_ids": False},
+        {"due_date": 0},
+        {"due_date": False},
+        {"due_date": []},
+        {"due_date": {}},
+    ],
+)
+def test_falsey_malformed_scheduling_fields_fail_closed(tmp_path, values):
+    fake = FakeHub()
+    fake.request(TASK, **values)
+    d, herdr, _ = dispatcher(tmp_path, fake)
+    d.reconcile()
+    assert herdr.calls == [] and fake.patches == []
+    assert fake.rows[TASK]["dispatch"] == "Requested"
+
+
+def test_startup_title_edit_is_used_in_the_delivered_prompt(tmp_path):
+    fake = FakeHub()
+    fake.request(TASK, title="Original task")
+    herdr = FakeHerdr(hooks={"agent wait": lambda: fake.edit(TASK, title="Updated task")})
+    d, _, _ = dispatcher(tmp_path, fake, herdr=herdr)
+    d.reconcile()
+    assert "Updated task" in herdr.call("agent prompt")[3]
+    assert "Original task" not in herdr.call("agent prompt")[3]
+
+
+def test_uncertain_prompt_is_never_replayed_after_restart(tmp_path):
+    fake = FakeHub()
+    fake.request(TASK)
+    herdr = FakeHerdr(fail={"agent prompt": HerdrError("unavailable", "ack lost")})
+    d, _, _ = dispatcher(tmp_path, fake, herdr=herdr)
+    d.reconcile()
+    assert fake.rows[TASK]["dispatch"] == "Requested"
+    assert "tab close" not in herdr.verbs()
+    herdr.fail.clear()
+    resumed, _, _ = dispatcher(tmp_path, fake, herdr=herdr)
+    resumed.reconcile()
+    resumed.reconcile()
+    assert herdr.verbs().count("agent prompt") == 1
+    assert fake.rows[TASK]["dispatch"] == "Requested"
+
+
+def test_crash_after_start_reuses_blank_agent_without_false_adoption(tmp_path):
+    fake = FakeHub()
+    fake.request(TASK)
+
+    class InterruptedHerdr(FakeHerdr):
+        interrupt = True
+
+        def __call__(self, *args):
+            result = super().__call__(*args)
+            if args[:2] == ("agent", "start") and self.interrupt:
+                self.interrupt = False
+                raise OSError("dispatcher interrupted after agent start")
+            return result
+
+    herdr = InterruptedHerdr()
+    d, _, _ = dispatcher(tmp_path, fake, herdr=herdr)
+    with pytest.raises(OSError):
+        d.reconcile()
+    resumed, _, _ = dispatcher(tmp_path, fake, herdr=herdr)
+    resumed.reconcile()
+    resumed.reconcile()
+    assert herdr.verbs().count("agent prompt") == 1
+    assert herdr.verbs().count("tab create") == 1
+    assert fake.rows[TASK]["dispatch"] == "Started"
+
+
+def test_reopened_dependency_during_startup_is_held_and_resumed_once(tmp_path):
+    fake = FakeHub([{"id": OTHER, "status": "Completed"}])
+    fake.request(TASK, blocked_by_ids=[OTHER])
+    herdr = FakeHerdr(hooks={"agent wait": lambda: fake.edit(OTHER, status="To Do")})
+    d, _, _ = dispatcher(tmp_path, fake, herdr=herdr)
+    d.reconcile()
+    assert "agent prompt" not in herdr.verbs() and not fake.patches
+    herdr.hooks.clear()
+    fake.edit(OTHER, status="Completed")
+    resumed, _, _ = dispatcher(tmp_path, fake, herdr=herdr)
+    resumed.reconcile()
+    resumed.reconcile()
+    assert herdr.verbs().count("agent prompt") == 1
+    assert herdr.verbs().count("tab create") == 1
+
+
+@pytest.mark.parametrize(
+    "values",
+    [
+        {"blocked_by_ids": None, "due_date": None},
+        {"blocked_by_ids": "", "due_date": ""},
+        {"blocked_by_ids": [], "due_date": None},
+        {"blocked_by_ids": "[]", "due_date": ""},
+    ],
+)
+def test_documented_empty_scheduling_fields_still_dispatch(tmp_path, values):
+    fake = FakeHub()
+    fake.request(TASK, **values)
+    d, herdr, _ = dispatcher(tmp_path, fake)
+    d.reconcile()
+    assert herdr.verbs().count("agent prompt") == 1
+    assert fake.rows[TASK]["dispatch"] == "Started"
+
+
+def test_corrupt_retained_phase_cannot_trigger_work(tmp_path):
+    fake = FakeHub()
+    fake.request(TASK)
+    d, herdr, _ = dispatcher(tmp_path, fake)
+    path = d.handoffs.path(TASK)
+    path.parent.mkdir(parents=True)
+    path.write_text("unrecognized")
+    with pytest.raises(ValueError, match="retained handoff"):
+        d.reconcile()
+    assert herdr.calls == [] and fake.patches == []
+
+
+def test_edit_while_checking_dependencies_after_startup_prevents_delivery(tmp_path):
+    fake = FakeHub([{"id": OTHER, "status": "Completed"}])
+    fake.request(TASK, blocked_by_ids=[OTHER])
+    waiting_finished = [False]
+    herdr = FakeHerdr(hooks={"agent wait": lambda: waiting_finished.__setitem__(0, True)})
+    d, _, _ = dispatcher(tmp_path, fake, herdr=herdr)
+    original = d.hub.rows
+
+    def rows(table, columns, where):
+        result = original(table, columns, where)
+        if waiting_finished[0] and where == {"id": OTHER}:
+            fake.edit(TASK, notes="PAUSED during dependency read")
+        return result
+
+    d.hub.rows = rows
+    d.reconcile()
+    assert "agent prompt" not in herdr.verbs()
+    assert fake.rows[TASK]["dispatch"] == "Requested"
+    herdr.hooks.clear()
+    fake.edit(TASK, notes=None)
+    resumed, _, _ = dispatcher(tmp_path, fake, herdr=herdr)
+    resumed.reconcile()
+    resumed.reconcile()
+    assert herdr.verbs().count("tab create") == 1
+    assert herdr.verbs().count("agent prompt") == 1
