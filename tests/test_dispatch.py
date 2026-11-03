@@ -420,3 +420,99 @@ def test_short_label(title, label):
 def test_agent_name_is_a_valid_herdr_name():
     name = agent_name(TASK)
     assert name == "task-3f403953a8af8151" and len(name) <= 32
+
+
+@pytest.mark.parametrize(
+    "values",
+    [
+        {"due_date": "2999-01-01"},
+        {"due_date": "2999-01-01T12:00"},
+        {"due_date": "invalid"},
+        {"blocked_by_ids": [OTHER]},
+        {"blocked_by_ids": '["missing"]'},
+        {"blocked_by_ids": "invalid"},
+        {"notes": "PAUSED at the user's request. Resume only when asked."},
+        {"status": "Deferred"},
+    ],
+)
+def test_held_requested_task_is_not_launched_or_mutated(tmp_path, values):
+    fake = FakeHub([{"id": OTHER, "status": "To Do"}])
+    fake.request(TASK, **values)
+    before = json.loads(json.dumps(fake.rows[TASK]))
+    d, herdr, quota = dispatcher(tmp_path, fake)
+    run_watch(d, fake)
+    assert herdr.calls == [] and quota.calls == 0
+    assert fake.rows[TASK] == before and fake.patches == []
+    assert fake.acks == ["d1"]
+
+
+def test_dependency_completion_rechecks_retained_request_after_quiet_poll(tmp_path):
+    fake = FakeHub([{"id": OTHER, "status": "To Do"}])
+    fake.request(TASK, blocked_by_ids=[OTHER])
+    d, herdr, _ = dispatcher(tmp_path, fake)
+    original = d.hub.poll
+
+    def poll(*args):
+        result = original(*args)
+        if not result["events"]:
+            fake.edit(OTHER, status="Completed")
+        return result
+
+    d.hub.poll = poll
+    run_watch(d, fake, iterations=3)
+    assert fake.rows[TASK]["dispatch"] == "Started"
+    assert herdr.verbs().count("tab create") == 1
+
+
+@pytest.mark.parametrize("status", ["Completed", "Canceled"])
+def test_only_closed_blockers_allow_a_request(tmp_path, status):
+    fake = FakeHub([{"id": OTHER, "status": status}])
+    fake.request(TASK, blocked_by_ids=json.dumps([OTHER]))
+    d, herdr, _ = dispatcher(tmp_path, fake)
+    d.reconcile()
+    d.reconcile()
+    assert herdr.verbs().count("tab create") == 1
+
+
+def test_change_during_quota_selection_prevents_launch(tmp_path):
+    fake = FakeHub()
+    fake.request(TASK)
+
+    def quota():
+        fake.edit(TASK, due_date="2999-01-01", notes="PAUSED by user")
+        return {"claude": 60}
+
+    d, herdr, _ = dispatcher(tmp_path, fake, quota=quota)
+    d.reconcile()
+    assert "tab create" not in herdr.verbs()
+    assert fake.rows[TASK]["dispatch"] == "Requested" and not fake.patches
+
+
+@pytest.mark.parametrize(
+    "due,before,after",
+    [
+        ("2030-01-02", "2030-01-02T07:59:00+00:00", "2030-01-02T08:00:00+00:00"),
+        ("2030-01-02T12:30", "2030-01-02T17:29:00+00:00", "2030-01-02T17:30:00+00:00"),
+        ("2030-01-02T12:30:00Z", "2030-01-02T12:29:00+00:00", "2030-01-02T12:30:00+00:00"),
+    ],
+)
+def test_due_respects_configured_calendar_and_clock(tmp_path, monkeypatch, due, before, after):
+    from datetime import datetime
+    from agent_dispatch import dispatch as module
+
+    clock = [datetime.fromisoformat(before)]
+
+    class Frozen(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return clock[0].astimezone(tz)
+
+    monkeypatch.setattr(module, "datetime", Frozen)
+    fake = FakeHub()
+    fake.request(TASK, due_date=due)
+    d, herdr, _ = dispatcher(tmp_path, fake, time_zone="America/New_York", day_start_minutes=180)
+    d.reconcile()
+    assert herdr.calls == [] and fake.rows[TASK]["dispatch"] == "Requested"
+    clock[0] = datetime.fromisoformat(after)
+    d.reconcile()
+    assert herdr.verbs().count("tab create") == 1

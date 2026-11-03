@@ -10,7 +10,8 @@ import json
 import re
 import subprocess
 from collections.abc import Callable
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 import structlog
 
@@ -27,6 +28,8 @@ COLUMNS = [
     "lane",
     "status",
     "dispatch",
+    "due_date",
+    "blocked_by_ids",
     "notes",
     "deleted_at",
     "updated_at",
@@ -126,6 +129,9 @@ class Dispatcher:
         return rows[0] if rows else None
 
     def handle(self, row: dict) -> None:
+        row = self.read(row["id"])
+        if not row:
+            return
         if row["deleted_at"] or row["dispatch"] != "Requested":
             return
         task = row["id"]
@@ -133,6 +139,8 @@ class Dispatcher:
             return self.fail(task, "lane is Me: only the user takes this task")
         if row["status"] in ("Completed", "Canceled"):
             return self.fail(task, f"task is {row['status']}")
+        if not self.eligible(row):
+            return
         name = agent_name(task)
         try:
             self.herdr("agent", "get", name)
@@ -144,12 +152,69 @@ class Dispatcher:
         spec, why = self.choose(row["title"] or "")
         if spec is None:
             return self.fail(task, why)
+        # Quota selection can take time; honor edits made while it ran.
+        row = self.read(task)
+        if not row or not self.eligible(row):
+            return
         try:
             self.launch(name, spec, row)
         except HerdrError as error:
             return self.fail(task, f"Could not start an agent ({spec.kind}): {error}")
         log.info("dispatched", task=task, agent=name, kind=spec.kind, model=spec.model, why=why)
         self.mark(task, {"dispatch": "Started"})
+
+    def eligible(self, row: dict) -> bool:
+        """Requested means pending intent, never permission to bypass a hold."""
+        if row.get("deleted_at") or row.get("dispatch") != "Requested":
+            return False
+        if row.get("lane") == "Me":
+            return False
+        if row.get("status") not in ("To Do", "In Progress"):
+            return False
+        # Historical/ambiguous pause prose stays held until explicitly cleared.
+        if re.search(
+            r"^\s*(?:\d{4}-\d{2}-\d{2}[: ]+)?(?:PAUSED\b|USER-DEFERRED\b|DEFERRED\b|ON HOLD\b|Resume only when\b)",
+            row.get("notes") or "",
+            re.IGNORECASE | re.MULTILINE,
+        ):
+            return False
+        now = datetime.now(UTC)
+        local = (
+            now.astimezone(ZoneInfo(self.settings.time_zone))
+            if self.settings.time_zone
+            else now.astimezone()
+        )
+        due = row.get("due_date")
+        try:
+            if due:
+                if not isinstance(due, str):
+                    return False
+                if re.fullmatch(r"\d{4}-\d{2}-\d{2}", due):
+                    if (
+                        date.fromisoformat(due)
+                        > (local - timedelta(minutes=self.settings.day_start_minutes)).date()
+                    ):
+                        return False
+                else:
+                    if "T" not in due:
+                        return False
+                    deadline = datetime.fromisoformat(due.replace("Z", "+00:00"))
+                    if deadline > (now if deadline.tzinfo else local.replace(tzinfo=None)):
+                        return False
+            blockers = row.get("blocked_by_ids") or []
+            if isinstance(blockers, str):
+                blockers = json.loads(blockers)
+            if not isinstance(blockers, list) or any(
+                not isinstance(b, str) or not b for b in blockers
+            ):
+                return False
+        except (ValueError, TypeError):
+            return False
+        for blocker in set(blockers):
+            target = self.read(blocker)
+            if not target or target.get("status") not in ("Completed", "Canceled"):
+                return False
+        return True
 
     def choose(self, title: str) -> tuple[AgentSpec | None, str]:
         agents = self.settings.agents

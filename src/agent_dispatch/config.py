@@ -10,6 +10,7 @@ import subprocess
 from pathlib import Path
 from typing import Literal
 from urllib.parse import urlsplit
+from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel, Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -63,6 +64,8 @@ class Settings(BaseSettings):
     token_command: list[str] | None = None
     state_dir: Path = Field(default_factory=lambda: _xdg("XDG_STATE_HOME", ".local/state"))
     hold_seconds: int = Field(default=30, ge=0, le=30)
+    time_zone: str | None = None  # absent: the host local calendar
+    day_start_minutes: int = Field(default=0, ge=0, le=1439)
     # Herdr destination for agent tabs; cwd is where each agent session starts.
     herdr: str = "herdr"
     herdr_session: str = "default"
@@ -77,6 +80,16 @@ class Settings(BaseSettings):
     fallback_agent: str = "codex"  # used when the default's provider has none
     quota_axi: str = "quota-axi"
     min_quota_percent: float = Field(default=1, ge=0, le=100)
+
+    @field_validator("time_zone")
+    @classmethod
+    def valid_time_zone(cls, value):
+        if value is not None:
+            try:
+                ZoneInfo(value)
+            except (KeyError, ValueError):
+                raise ValueError("time_zone must name an IANA timezone") from None
+        return value
 
     @field_validator("hub_url")
     @classmethod

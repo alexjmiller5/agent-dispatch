@@ -35,6 +35,9 @@ def watch(
                     e["source"]["row_id"] for e in batch["events"] if e["source"].get("row_id")
                 )
                 hub.ack(settings.subscription_id, batch["delivery_id"])
+            # A quiet long poll is also the clock/dependency wake for held requests.
+            if not batch["events"]:
+                dirty = True
             backoff = 1.0
         except (HubError, CredentialError) as error:
             dirty = True

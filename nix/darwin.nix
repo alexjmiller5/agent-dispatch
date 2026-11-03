@@ -25,10 +25,12 @@ let
     AGENT_DISPATCH_HERDR_SESSION = cfg.herdrSession;
     AGENT_DISPATCH_CWD = cfg.cwd;
     AGENT_DISPATCH_PROMPT_FILE = cfg.promptFile;
+    AGENT_DISPATCH_DAY_START_MINUTES = toString cfg.dayStartMinutes;
   }
   // lib.optionalAttrs (cfg.credentialCommand != [ ]) {
     AGENT_DISPATCH_TOKEN_COMMAND = builtins.toJSON cfg.credentialCommand;
   }
+  // optional "AGENT_DISPATCH_TIME_ZONE" cfg.timeZone
   // optional "AGENT_DISPATCH_HERDR_WORKSPACE" cfg.herdrWorkspace
   // optional "AGENT_DISPATCH_DEFAULT_AGENT" cfg.defaultAgent
   // optional "AGENT_DISPATCH_FALLBACK_AGENT" cfg.fallbackAgent
@@ -122,6 +124,18 @@ in
       default = "/Users/${cfg.user}";
       defaultText = lib.literalExpression ''"/Users/''${user}"'';
       description = "Directory each agent session starts in.";
+    };
+
+    timeZone = lib.mkOption {
+      type = lib.types.nullOr lib.types.str;
+      default = null;
+      description = "Task calendar IANA timezone (null: host local zone).";
+    };
+
+    dayStartMinutes = lib.mkOption {
+      type = lib.types.ints.between 0 1439;
+      default = 0;
+      description = "Task logical day starts this many minutes after midnight.";
     };
 
     promptFile = lib.mkOption {

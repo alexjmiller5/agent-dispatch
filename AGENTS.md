@@ -29,6 +29,11 @@ agent choice, install and service setup.
   startup and any failed pass reconcile all `Requested` rows; a batch is ACKed
   only after its pass succeeded. Writes are revision-checked patches from a
   fresh read; a row no longer `Requested` keeps the other writer's value.
+- Pending requests respect due dates, open dependencies and explicit pause/defer
+  markers in notes. Missing/malformed dependencies or dates fail closed without
+  changing the task. Historical pause markers require explicit clearance. Quiet
+  long polls recheck held requests. `time_zone` and `day_start_minutes` select the
+  task calendar; absent timezone uses the host local zone.
 - **Never launch twice.** The Herdr agent name is derived from the task id; an
   existing agent is adopted. `Failed` is terminal until someone sets `Requested`.
 - **Outcomes live on the row** (`dispatch`, a `notes` line), not only the log.

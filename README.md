@@ -17,6 +17,19 @@ subscription (`durable-pull-v1`) over `tasks.dispatch`.
 | `dispatch` | anyone / job | `Requested` = open an agent session; `Started` and `Failed` are written only by this job |
 | `notes` | job (append only) | on `Failed`: `Agent Dispatch <time>: <reason>` |
 | `title`, `lane`, `status` | read | `lane = Me` and closed tasks are refused (`Failed`) |
+| `due_date`, `blocked_by_ids` | read | future tasks and tasks with open or missing blockers remain Requested |
+
+Tasks with explicit PAUSED, DEFERRED, USER-DEFERRED, ON HOLD or Resume only when
+markers at the start of a note line stay pending, including historical markers.
+Clear the hold explicitly before requesting work; the consumer never infers a
+resume from ambiguous prose. Invalid dates/dependencies and unknown statuses
+also stay pending. Quiet long polls recheck pending requests, so reaching a due
+time or completing a blocker does not require resubmission.
+
+Date-only dues use the host local calendar, or `AGENT_DISPATCH_TIME_ZONE` (IANA)
+and `AGENT_DISPATCH_DAY_START_MINUTES` (0 through 1439). Floating times use that
+zone; timezone-qualified instants retain their exact time. Match the producer
+calendar during rollout. Holds never change task status, deadlines, lanes or notes.
 
 Set `Requested` again to retry a `Failed` task. A task whose agent is still
 running in Herdr (agent name `task-<first 16 hex of the id>`) is adopted, never
@@ -67,6 +80,7 @@ services.agent-dispatch = {
   subscriptionId = "<subscription id>";
   credentialCommand = [ "/usr/bin/security" "find-generic-password" "-s" "agent-dispatch" "-a" "hub" "-w" ];
   herdrWorkspace = "w1";            # optional
+  # timeZone / dayStartMinutes must match the producer calendar.
   # agents / defaultAgent / fallbackAgent / minQuotaPercent / promptFile / cwd: see nix/darwin.nix
 };
 ```
@@ -104,3 +118,5 @@ A replacement Mac enrolls a new credential; revoke the old one at
 `just test`, `just check`, `just fmt`; `just dev` runs the watcher and
 `just run` one reconciliation pass with your `AGENT_DISPATCH_*` environment.
 Tests drive the job against an in-process fake hub and a fake Herdr.
+
+Run `REFLEX_REPO=<checkout> just test` to include the real Reflex occurrence-to-dispatch contract regression. It is skipped without the separate producer checkout.
